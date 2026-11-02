@@ -1,61 +1,37 @@
-name: Sub Checker Creator
+name: Ping & Sync Configs
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: '0 */4 * * *'
-
-concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: true
-
-permissions:
-  contents: write
+    - cron: '0 */3 * * *'   # هر ۳ ساعت (هماهنگ با TTL پروژه PHP)
+  workflow_dispatch:         # امکان اجرای دستی
 
 jobs:
-  build-and-commit:
+  ping_and_sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          # استفاده از نسخه پایدار 3.12
-          python-version: '3.13'
-
-      - name: Install Python dependencies
-        run: pip install requests psutil retrying PyYaml
-
-      - name: Clean up old results before run
+      - name: Download configs from host
         run: |
-          rm -f final.txt final_b64.txt vless*.txt vmess*.txt trojan*.txt ss*.txt hy2*.txt wireguard*.txt socks*.txt tuic*.txt ssr*.txt
-          rm -rf loc/
+          curl -sSL -o normal.txt \
+            "${{ secrets.HOST_URL }}/get_configs.php?token=${{ secrets.API_TOKEN }}"
 
-      - name: Set execute permissions for binaries
+      - name: Run Sub Checker (Xray ping)
         run: |
-          chmod +x xray/xray
-          chmod +x hy2/hysteria
+          # پروژه Sub_Checker_Creator معمولاً اسکریپت اصلی را اجرا می‌کند
+          # اگر فایل اجرایی متفاوتی دارد، مسیر آن را اینجا تنظیم کنید
+          bash run.sh || python3 main.py || node index.js
 
-      - name: Run the checker script
-        run: python cl.py
-
-      - name: Commit and Push new results
+      - name: Upload result to host
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          
-          # راه حل نهایی: همه تغییرات را اضافه کن...
-          git add .
-          # ... سپس پوشه گردش کار را از لیست تغییرات حذف کن تا خطای دسترسی رخ ندهد
-          git reset -- .github/
-          
-          if ! git diff --staged --quiet; then
-            echo "Changes detected. Committing and pushing..."
-            git commit -m "chore: Update subscription results [skip ci]"
-            # با استفاده از --force، نتایج جدید همیشه بازنویسی می‌شوند و از تداخل جلوگیری می‌شود
-            git push --force
+          if [ -f final.txt ]; then
+            CONFIGS=$(cat final.txt)
+            curl -sSL -X POST \
+              -d "token=${{ secrets.API_TOKEN }}" \
+              --data-urlencode "configs=$CONFIGS" \
+              "${{ secrets.HOST_URL }}/save_pinged.php"
           else
-            echo "No changes detected to commit."
+            echo "final.txt not found!"
+            exit 1
           fi
